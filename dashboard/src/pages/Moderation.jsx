@@ -105,14 +105,14 @@ function AutoModCard() {
             <Label htmlFor="maxw">Warnings before ban</Label>
             <p className="-mt-1 text-sm text-slate-500 dark:text-slate-400">The member is banned automatically at this count.</p>
           </div>
-          <input id="maxw" type="number" min={1} max={10} value={maxWarn} onChange={(e) => setMaxWarn(e.target.value)} className={inputClass + ' w-20 text-center'} />
+          <div className="w-24 shrink-0"><input id="maxw" type="number" min={1} max={10} value={maxWarn} onChange={(e) => setMaxWarn(e.target.value)} className={inputClass + ' text-center'} /></div>
         </div>
         <div className="flex items-center justify-between gap-4 px-5 py-4">
           <div>
             <Label htmlFor="mute">Mute duration</Label>
-            <p className="-mt-1 text-sm text-slate-500 dark:text-slate-400">Minutes, used by /mute and the Mute button.</p>
+            <p className="-mt-1 text-sm text-slate-500 dark:text-slate-400">How long /mute and the Mute button stop someone from posting.</p>
           </div>
-          <input id="mute" type="number" min={1} max={10080} value={muteMin} onChange={(e) => setMuteMin(e.target.value)} className={inputClass + ' w-24 text-center'} />
+          <div className="flex w-32 shrink-0 items-center gap-2"><input id="mute" type="number" min={1} max={10080} value={muteMin} onChange={(e) => setMuteMin(e.target.value)} className={inputClass + ' text-center'} /><span className="text-sm text-slate-500">min</span></div>
         </div>
         <div className={cx('flex items-center justify-between gap-4 px-5 py-4', testMode && 'bg-amber-50 dark:bg-amber-500/10')}>
           <div>
