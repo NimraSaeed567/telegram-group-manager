@@ -1,0 +1,1943 @@
+{
+  "name": "WF1 - Group Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## WF1 — Group Bot\nEvery message in the group arrives here.\n**Normalize** cleans it up, then **Route by type** sends it down one branch:\n- **join** → track + welcome\n- **leave** → mark as left\n- **chat** → moderation (messages) or commands",
+        "height": 220,
+        "width": 700,
+        "color": 5
+      },
+      "id": "1bca5560-6cc6-4391-94c8-c77e2c9ed706",
+      "name": "Note 8447e9",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "f3a94c37-3b59-4673-80db-85d190b358ff",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "b9ef93ca-e831-4697-9c15-bb55cdea4070"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1107cf43-f96f-4135-ad77-a28478cd4dfb",
+              "name": "botToken",
+              "value": "YOUR_BOT_TOKEN",
+              "type": "string"
+            },
+            {
+              "id": "6aa8040f-ac20-458a-ae57-3a1e7139b640",
+              "name": "supabaseUrl",
+              "value": "https://YOUR_PROJECT.supabase.co",
+              "type": "string"
+            },
+            {
+              "id": "830ecce8-6707-469c-987a-675cd16056e2",
+              "name": "supabaseKey",
+              "value": "YOUR_SUPABASE_SERVICE_ROLE_KEY",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "640dcac4-de01-4189-86ea-697452c07aa7",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn the raw Telegram update into one clean object used by every other node.\nconst u = $('Telegram Trigger').first().json;\nconst m = u.message || {};\nconst from = m.from || {};\nconst text = m.text || m.caption || '';\nconst isCommand = text.startsWith('/');\nconst isAnonAdmin = !!m.sender_chat && m.sender_chat.id === m.chat?.id; // admin posting \"as the group\"\nconst left = m.left_chat_member || null;\nconst entities = [...(m.entities || []), ...(m.caption_entities || [])];\n\nlet type = 'other';\nif (m.new_chat_members?.length) type = 'join';\nelse if (left) type = left.id === from.id && !left.is_bot ? 'leave' : 'removed'; // removed = kicked/banned (already logged)\nelse if (from.is_bot && !isAnonAdmin) type = 'other';\nelse if (isCommand) type = 'command';\nelse if (text) type = 'message';\n\nconst rt = m.reply_to_message;\nreturn [{ json: {\n  chatId: m.chat?.id,\n  chatTitle: m.chat?.title || null,\n  isGroup: ['group', 'supergroup'].includes(m.chat?.type),\n  messageId: m.message_id,\n  userId: from.id,\n  username: from.username || null,\n  firstName: from.first_name || 'there',\n  isAnonAdmin,\n  text,\n  isCommand,\n  command: isCommand ? text.split(/\\s+/)[0].split('@')[0].toLowerCase() : null,\n  replyTo: rt?.from ? {\n    userId: rt.from.id,\n    username: rt.from.username || null,\n    firstName: rt.from.first_name || 'User',\n    isBot: rt.from.is_bot === true,\n    text: rt.text || rt.caption || null,\n  } : null,\n  newMembers: m.new_chat_members || [],\n  leftMember: left ? { userId: left.id, username: left.username || null, firstName: left.first_name || 'User' } : null,\n  hasLink: entities.some(e => ['url', 'text_link'].includes(e.type)) || /(https?:\\/\\/|www\\.|t\\.me\\/)/i.test(text),\n  type,\n}}];"
+      },
+      "id": "85872b65-1e92-4dea-8233-1e2e54a202ff",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d7d80039-38a4-4ae9-bb36-26625a20f3d2",
+              "leftValue": "={{ $json.isGroup && !['other', 'removed'].includes($json.type) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "ec9201ef-d899-4bb1-804c-433223db61e4",
+      "name": "Group message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/settings?on_conflict=chat_id",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Normalize').first().json.chatId, group_title: $('Normalize').first().json.chatTitle }) }}"
+      },
+      "id": "8129f2a5-0c5d-4592-98db-f50be33fe8bd",
+      "name": "Ensure settings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "5e8ee94a-d297-4c7a-a5d6-652de80f0ba7",
+                    "leftValue": "={{ ['message', 'command'].includes($('Normalize').first().json.type) ? 'chat' : $('Normalize').first().json.type }}",
+                    "rightValue": "join",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "join"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "da5bf76b-03c5-4225-8005-dc588115db54",
+                    "leftValue": "={{ ['message', 'command'].includes($('Normalize').first().json.type) ? 'chat' : $('Normalize').first().json.type }}",
+                    "rightValue": "leave",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "leave"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "f445e313-4b33-4528-b83a-ac2057b5da0c",
+                    "leftValue": "={{ ['message', 'command'].includes($('Normalize').first().json.type) ? 'chat' : $('Normalize').first().json.type }}",
+                    "rightValue": "chat",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "chat"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d3890e5e-f0b2-4bb7-9a8a-f56feb40c803",
+      "name": "Route by type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Join\nAdd each new member to the database, log it and send the welcome message.",
+        "height": 120,
+        "width": 960,
+        "color": 4
+      },
+      "id": "3c3b7d85-508a-41b9-9373-8b71b1f9b272",
+      "name": "Note 0d9d2e",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1420,
+        -330
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One item per human who joined (bots are skipped).\nconst n = $('Normalize').first().json;\nreturn n.newMembers\n  .filter(u => !u.is_bot)\n  .map(u => ({ json: { chatId: n.chatId, userId: u.id, username: u.username || null, firstName: u.first_name || 'there' } }));"
+      },
+      "id": "8ca00cd3-48fb-4bc2-8011-d6483009f15b",
+      "name": "New members",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/rpc/track_member",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_chat_id: $json.chatId, p_user_id: $json.userId, p_username: $json.username, p_first_name: $json.firstName, p_increment: 0 }) }}"
+      },
+      "id": "f70a82b3-9a9d-44fe-b4c1-53aa804091e7",
+      "name": "Track new member",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/activity_log",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Track new member').item.json.chat_id, user_id: $('Track new member').item.json.user_id, username: $('Track new member').item.json.first_name, event_type: 'join' }) }}"
+      },
+      "id": "6c5b2e60-ee5c-414e-8f15-23f196249dd6",
+      "name": "Log join",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/sendMessage",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Track new member').item.json.chat_id, text: $('Ensure settings').first().json.welcome_message.replaceAll('{name}', $('Track new member').item.json.first_name || 'there') }) }}"
+      },
+      "id": "46169eb7-3b1b-4f0a-9250-440330204b2e",
+      "name": "Send welcome",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        -200
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/members?chat_id=eq.{{ $('Normalize').first().json.chatId }}&user_id=eq.{{ $('Normalize').first().json.leftMember.userId }}&status=neq.banned",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status: 'left' }) }}"
+      },
+      "id": "e8e6d3bd-20e1-407e-99e4-b85f20b0e407",
+      "name": "Mark as left",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/activity_log",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Normalize').first().json.chatId, user_id: $('Normalize').first().json.leftMember.userId, username: $('Normalize').first().json.leftMember.firstName, event_type: 'leave' }) }}"
+      },
+      "id": "4a805620-2565-47c9-8755-91c8d1e7374d",
+      "name": "Log leave",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/rpc/track_member",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_chat_id: $('Normalize').first().json.chatId, p_user_id: $('Normalize').first().json.userId, p_username: $('Normalize').first().json.username, p_first_name: $('Normalize').first().json.firstName, p_increment: 1 }) }}"
+      },
+      "id": "0b7c19c8-47d8-44a4-a78c-c449e5d0d3e8",
+      "name": "Track sender",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/getChatMember",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Normalize').first().json.chatId, user_id: $('Normalize').first().json.userId }) }}"
+      },
+      "id": "3087b6d4-affe-4e77-9920-aef30ee057f7",
+      "name": "Get sender status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6dded359-3b10-43ce-ad44-dbe600c18f1a",
+              "leftValue": "={{ $('Normalize').first().json.isCommand }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "b5b650f7-ae6e-4656-83aa-16840940587e",
+      "name": "Is command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Auto-moderation\nAdmins are skipped. Links / banned words → delete message, warn, and ban at the max warning count.",
+        "height": 120,
+        "width": 1450,
+        "color": 3
+      },
+      "id": "7ac3aee3-01d9-42e5-801e-da24cacc1377",
+      "name": "Note 6e7666",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2140,
+        430
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/banned_words?select=word",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            }
+          ]
+        }
+      },
+      "id": "c7fe65b6-767e-45bf-9e6f-d5e5261aee9f",
+      "name": "Get banned words",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        560
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Decide if the message breaks a rule. Admins are never moderated (unless Test mode is on).\nconst n = $('Normalize').first().json;\nconst s = $('Ensure settings').first().json;\nconst status = $('Get sender status').first().json?.result?.status;\nconst isAdmin = n.isAnonAdmin || ['administrator', 'creator'].includes(status);\n\nconst words = $('Get banned words').all().map(i => String(i.json.word || '').toLowerCase()).filter(Boolean);\nconst lower = n.text.toLowerCase();\nconst hit = words.find(w => lower.includes(w));\n\nconst exempt = isAdmin && !s.test_mode;\nlet reason = null;\nif (!exempt) {\n  if (s.block_links && n.hasLink) reason = 'Links are not allowed';\n  else if (hit) reason = `Banned word: \"${hit}\"`;\n}\nreturn [{ json: {\n  violation: !!reason, isAdmin, reason,\n  chatId: n.chatId, userId: n.userId, messageId: n.messageId, name: n.firstName, text: n.text, by: 'bot',\n}}];"
+      },
+      "id": "40078969-34f9-4a79-a745-a83690482814",
+      "name": "Check violation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c96b9a23-da64-49d2-8483-e96448f1496d",
+              "leftValue": "={{ $json.violation }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "47d6fdff-2dd2-4079-8e16-9b4705569eeb",
+      "name": "Violation?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2640,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/deleteMessage",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.chatId, message_id: $json.messageId }) }}"
+      },
+      "id": "9e850fed-d539-4597-9bba-dd6652396142",
+      "name": "Delete message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        460
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/activity_log",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Check violation').first().json.chatId, user_id: $('Check violation').first().json.userId, username: $('Check violation').first().json.name, event_type: 'message_deleted', details: { reason: $('Check violation').first().json.reason, text: $('Check violation').first().json.text } }) }}"
+      },
+      "id": "1c300adc-b36e-4d8f-8a44-123c90d5753f",
+      "name": "Log deletion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/rpc/add_warning",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_chat_id: $json.chatId, p_user_id: $json.userId, p_reason: $json.reason, p_message: $json.text || null, p_issued_by: $json.by }) }}"
+      },
+      "id": "d58ed624-b1ed-494e-91e1-0c2bf76109fd",
+      "name": "Add warning",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a510eafe-2378-41de-b10d-79582e7c9f70",
+              "leftValue": "={{ $json.reached_max }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "e799c73f-8cc2-413f-b89b-2ccec84924bf",
+      "name": "Reached max?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3120,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/banChatMember",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.chat_id, user_id: $json.user_id }) }}"
+      },
+      "id": "82ebd51f-e716-42a1-b735-9f6587c14a67",
+      "name": "Ban user",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        600
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "86d009fb-cc14-45ae-8756-fd208aae8af2",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "0be9356b-46b8-4d42-b16f-f8126f486e50",
+      "name": "Ban worked?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3600,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/members?chat_id=eq.{{ $('Add warning').item.json.chat_id }}&user_id=eq.{{ $('Add warning').item.json.user_id }}",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ warning_count: 0 }) }}"
+      },
+      "id": "91ccbd18-ff48-4c01-a304-f00cf4f9bc2f",
+      "name": "Reset warnings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        720
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/sendMessage",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Add warning').item.json.chat_id, text: '🧪 ' + $('Add warning').item.json.name + ' reached ' + $('Add warning').item.json.count + '/' + $('Add warning').item.json.max + ' warnings and would be banned now, but Telegram refused (' + ($('Ban user').item.json.description || 'admins and the group owner cannot be banned') + '). Warnings reset to 0.' }) }}"
+      },
+      "id": "c1586355-0782-4f06-a75e-7ef10bfa1c2d",
+      "name": "Ban refused notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4080,
+        720
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/rpc/set_member_status",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_chat_id: $('Add warning').item.json.chat_id, p_user_id: $('Add warning').item.json.user_id, p_status: 'banned', p_event: 'ban', p_by: 'bot', p_details: { reason: 'Reached ' + $('Add warning').item.json.max + ' warnings' } }) }}"
+      },
+      "id": "d00f9e94-2056-495f-927a-b521f43df4f1",
+      "name": "Mark banned",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/sendMessage",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Add warning').item.json.chat_id, text: '🚫 ' + $('Add warning').item.json.name + ' was banned after ' + $('Add warning').item.json.count + ' warnings.' }) }}"
+      },
+      "id": "7d107ab4-1f54-4d98-95cb-b8da19e57f10",
+      "name": "Announce ban",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4080,
+        560
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/sendMessage",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.chat_id, text: '⚠️ ' + $json.name + ', warning ' + $json.count + '/' + $json.max + ': ' + $json.reason + '.' }) }}"
+      },
+      "id": "04627efc-f90e-4f90-ac82-857ccb24cc42",
+      "name": "Send warning",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        780
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "### Commands\n/rules and /stats for everyone. /warn /ban /mute /unmute for admins only (reply to a message).",
+        "height": 120,
+        "width": 1450,
+        "color": 6
+      },
+      "id": "f4ef84c5-4889-4f4a-93ae-ae8e6a7752fe",
+      "name": "Note 629f19",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2140,
+        -90
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/activity_log",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Normalize').first().json.chatId, user_id: $('Normalize').first().json.userId, username: $('Normalize').first().json.firstName, event_type: 'command', details: { command: $('Normalize').first().json.command } }) }}"
+      },
+      "id": "4a069ef4-f352-4302-8b20-50f1bff0f0f1",
+      "name": "Log command",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "0c191016-538c-4caa-87f9-a843083b1f19",
+                    "leftValue": "={{ $('Normalize').first().json.command }}",
+                    "rightValue": "/rules",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "/rules"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b1533116-a773-4dad-b892-d9a7101e4255",
+                    "leftValue": "={{ $('Normalize').first().json.command }}",
+                    "rightValue": "/stats",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "/stats"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b145de66-261a-495a-9b2e-1b990a50a2d0",
+                    "leftValue": "={{ $('Normalize').first().json.command }}",
+                    "rightValue": "/warn",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "/warn"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "63f7ed63-98fa-4ad3-a00a-3a9ee77ed4fe",
+                    "leftValue": "={{ $('Normalize').first().json.command }}",
+                    "rightValue": "/ban",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "/ban"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "ee7c259a-89a6-498d-8812-37cb5c06a253",
+                    "leftValue": "={{ $('Normalize').first().json.command }}",
+                    "rightValue": "/mute",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "/mute"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "611410b2-9968-493b-a904-e1a9bf911a63",
+                    "leftValue": "={{ $('Normalize').first().json.command }}",
+                    "rightValue": "/unmute",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "/unmute"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ee009df7-e6a2-45b2-bcce-2b23a4066241",
+      "name": "Route command",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2400,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/sendMessage",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Normalize').first().json.chatId, text: '📜 Group rules\\n\\n' + $('Ensure settings').first().json.rules_text }) }}"
+      },
+      "id": "d62a624c-4f79-4e2b-aeef-12bf2060cf57",
+      "name": "Send rules",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        40
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/group_stats?chat_id=eq.{{ $('Normalize').first().json.chatId }}",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            }
+          ]
+        }
+      },
+      "id": "d92e4b81-4d78-42b5-b6b7-f24baed1957a",
+      "name": "Get stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/sendMessage",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Normalize').first().json.chatId, text: '📊 Group stats\\n' +\n  '👥 Members: ' + ($json.total_members ?? 0) + '\\n' +\n  '🟢 Active (24h): ' + ($json.active_24h ?? 0) + '\\n' +\n  '⚠️ Warnings (7d): ' + ($json.warnings_7d ?? 0) + '\\n' +\n  '🗑 Messages removed (7d): ' + ($json.deleted_7d ?? 0) + '\\n' +\n  '🚫 Banned: ' + ($json.banned ?? 0) }) }}"
+      },
+      "id": "d3e7dead-f6d7-4ec2-b029-5dac611d36ef",
+      "name": "Send stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        180
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check the sender is an admin and work out which Telegram call to make.\nconst n = $('Normalize').first().json;\nconst s = $('Ensure settings').first().json;\nconst status = $('Get sender status').first().json?.result?.status;\nconst isAdmin = n.isAnonAdmin || ['administrator', 'creator'].includes(status);\nconst t = n.replyTo;\nconst admin = n.isAnonAdmin ? 'admin' : (n.username ? '@' + n.username : n.firstName);\nconst base = { chatId: n.chatId, userId: t?.userId, name: t?.firstName, by: admin, cmd: n.command, error: null };\n\nif (!isAdmin) return [{ json: { ...base, error: '⛔ Only group admins can use this command.' } }];\nif (!t) return [{ json: { ...base, error: `↩️ Reply to a member's message with ${n.command}.` } }];\nif (t.isBot) return [{ json: { ...base, error: \"🤖 This command can't be used on bots.\" } }];\n\nconst mins = s.mute_minutes || 60;\nconst allOn = {\n  can_send_messages: true, can_send_audios: true, can_send_documents: true, can_send_photos: true,\n  can_send_videos: true, can_send_video_notes: true, can_send_voice_notes: true, can_send_polls: true,\n  can_send_other_messages: true, can_add_web_page_previews: true, can_invite_users: true,\n};\nconst allOff = Object.fromEntries(Object.keys(allOn).map(k => [k, false]));\nconst ids = { chat_id: n.chatId, user_id: t.userId };\n\nswitch (n.command) {\n  case '/warn':\n    return [{ json: { ...base, kind: 'warn', reason: 'Warned by admin', text: t.text } }];\n  case '/ban':\n    return [{ json: { ...base, kind: 'action', method: 'banChatMember', params: ids,\n      status: 'banned', event: 'ban', details: {}, okText: `🚫 ${t.firstName} was banned by ${admin}.` } }];\n  case '/mute':\n    return [{ json: { ...base, kind: 'action', method: 'restrictChatMember',\n      params: { ...ids, permissions: allOff, until_date: Math.floor(Date.now() / 1000) + mins * 60 },\n      status: 'muted', event: 'mute', details: { minutes: mins }, okText: `🔇 ${t.firstName} was muted for ${mins} minutes.` } }];\n  case '/unmute':\n    return [{ json: { ...base, kind: 'action', method: 'restrictChatMember', params: { ...ids, permissions: allOn },\n      status: 'active', event: 'unmute', details: {}, okText: `🔊 ${t.firstName} can send messages again.` } }];\n}\nreturn [{ json: { ...base, error: 'Unknown command.' } }];"
+      },
+      "id": "a37dd3d7-b255-430e-9218-eb334aaf4517",
+      "name": "Plan admin command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bb12d515-4616-46cd-a3b4-847a4c75a455",
+              "leftValue": "={{ !$json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "1cce82ee-4c5a-4b2b-89e3-6bd53fc0cc0d",
+      "name": "Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2880,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/sendMessage",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.chatId, text: $json.error }) }}"
+      },
+      "id": "5b436fdf-e35c-4cd0-9656-e60ec113b133",
+      "name": "Reply error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        400
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ccaa3974-c2c4-4899-bda5-06dface724bd",
+              "leftValue": "={{ $json.kind === 'warn' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "ace1b384-7afe-4741-9a3b-77136db2cd77",
+      "name": "Is /warn?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3120,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/{{ $json.method }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.params) }}"
+      },
+      "id": "a36dec20-bece-40d7-98d1-c83ed890e8a9",
+      "name": "Run Telegram action",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        240
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "17fa77ad-f72f-453c-b164-198889d2e256",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "d1728176-1959-4a54-bf29-347235e92f9e",
+      "name": "Action ok?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3600,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.supabaseUrl }}/rest/v1/rpc/set_member_status",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.supabaseKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_chat_id: $('Plan admin command').first().json.chatId, p_user_id: $('Plan admin command').first().json.userId, p_status: $('Plan admin command').first().json.status, p_event: $('Plan admin command').first().json.event, p_by: $('Plan admin command').first().json.by, p_details: $('Plan admin command').first().json.details }) }}"
+      },
+      "id": "b7e61f13-314b-43df-a348-c5af489a029f",
+      "name": "Save status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/sendMessage",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Plan admin command').first().json.chatId, text: $('Plan admin command').first().json.okText }) }}"
+      },
+      "id": "1737547f-ac85-4a72-926e-7adf0b6006a3",
+      "name": "Confirm",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4080,
+        180
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Config').first().json.botToken }}/sendMessage",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Plan admin command').first().json.chatId, text: \"❌ Couldn't do that: \" + ($json.description || $json.error?.message || 'unknown error') }) }}"
+      },
+      "id": "3f3554cc-edc3-4f6f-8efc-1a7d8b8e01a0",
+      "name": "Report failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        320
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize": {
+      "main": [
+        [
+          {
+            "node": "Group message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group message?": {
+      "main": [
+        [
+          {
+            "node": "Ensure settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure settings": {
+      "main": [
+        [
+          {
+            "node": "Route by type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by type": {
+      "main": [
+        [
+          {
+            "node": "New members",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark as left",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Track sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New members": {
+      "main": [
+        [
+          {
+            "node": "Track new member",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track new member": {
+      "main": [
+        [
+          {
+            "node": "Log join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log join": {
+      "main": [
+        [
+          {
+            "node": "Send welcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as left": {
+      "main": [
+        [
+          {
+            "node": "Log leave",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track sender": {
+      "main": [
+        [
+          {
+            "node": "Get sender status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get sender status": {
+      "main": [
+        [
+          {
+            "node": "Is command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is command?": {
+      "main": [
+        [
+          {
+            "node": "Log command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get banned words",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get banned words": {
+      "main": [
+        [
+          {
+            "node": "Check violation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check violation": {
+      "main": [
+        [
+          {
+            "node": "Violation?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Violation?": {
+      "main": [
+        [
+          {
+            "node": "Delete message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Add warning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete message": {
+      "main": [
+        [
+          {
+            "node": "Log deletion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add warning": {
+      "main": [
+        [
+          {
+            "node": "Reached max?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reached max?": {
+      "main": [
+        [
+          {
+            "node": "Ban user",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send warning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ban user": {
+      "main": [
+        [
+          {
+            "node": "Ban worked?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ban worked?": {
+      "main": [
+        [
+          {
+            "node": "Mark banned",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reset warnings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reset warnings": {
+      "main": [
+        [
+          {
+            "node": "Ban refused notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark banned": {
+      "main": [
+        [
+          {
+            "node": "Announce ban",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log command": {
+      "main": [
+        [
+          {
+            "node": "Route command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route command": {
+      "main": [
+        [
+          {
+            "node": "Send rules",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get stats",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Plan admin command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Plan admin command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Plan admin command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Plan admin command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get stats": {
+      "main": [
+        [
+          {
+            "node": "Send stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan admin command": {
+      "main": [
+        [
+          {
+            "node": "Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Is /warn?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is /warn?": {
+      "main": [
+        [
+          {
+            "node": "Add warning",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run Telegram action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Telegram action": {
+      "main": [
+        [
+          {
+            "node": "Action ok?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action ok?": {
+      "main": [
+        [
+          {
+            "node": "Save status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save status": {
+      "main": [
+        [
+          {
+            "node": "Confirm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
