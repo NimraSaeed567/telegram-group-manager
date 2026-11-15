@@ -1,14 +1,6 @@
 # Telegram Group Manager — Steps I Followed
 
-```mermaid
-flowchart LR
-  S1["1. Plan<br/>features + stack"] --> S2["2. Telegram bot<br/>BotFather + test group"]
-  S2 --> S3["3. Database<br/>Supabase tables + security"]
-  S3 --> S4["4. Bot logic<br/>3 n8n workflows"]
-  S4 --> S5["5. Dashboard<br/>React + Vercel"]
-  S5 --> S6["6. Test + fix"]
-  S6 --> S7["7. Deploy + document"]
-```
+![Steps I followed](diagrams/01-build-steps.svg)
 
 ## 1. Planning
 **Requirement:** a simple Telegram group management system — clean UI, working features, and a record of the steps followed.
@@ -27,20 +19,7 @@ flowchart LR
 
 **How the pieces connect:**
 
-```mermaid
-flowchart LR
-  TG["📱 Telegram group"] -->|"messages, joins, commands"| WF1["⚙️ n8n WF1<br/>Group Bot"]
-  WF1 -->|"delete, warn, ban, reply"| TG
-  WF1 <-->|"read / write"| DB[("🗄️ Supabase<br/>database")]
-  WF2["⏰ n8n WF2<br/>Scheduler, every minute"] <-->|"due announcements"| DB
-  WF2 -->|"post announcement"| TG
-  Admin["👩‍💼 Admin"] --> Dash["🖥️ Dashboard<br/>React on Vercel"]
-  Dash <-->|"login, data, live feed"| DB
-  Dash -->|"ban, mute, send now"| API["🔒 Vercel function<br/>checks admin login"]
-  API -->|"+ secret key"| WF3["⚙️ n8n WF3<br/>Admin Actions"]
-  WF3 --> TG
-  WF3 --> DB
-```
+![How the pieces connect](diagrams/02-architecture.svg)
 
 ## 2. Telegram bot setup
 - Created the bot with @BotFather and set its command list.
@@ -85,25 +64,7 @@ Error handling: every Telegram call returns its result instead of stopping the w
 
 **What the bot does with each message:**
 
-```mermaid
-flowchart TD
-  A["New update in the group"] --> B{"What is it?"}
-  B -->|"Someone joined"| C["Save member<br/>send welcome message"]
-  B -->|"Someone left"| D["Mark member as left"]
-  B -->|"Command"| E{"Which command?"}
-  E -->|"/rules or /stats"| F["Bot replies"]
-  E -->|"/warn /ban /mute /unmute"| G{"Sender is admin<br/>and replied to a message?"}
-  G -->|"No"| H["Bot explains how to use it"]
-  G -->|"Yes"| I["Apply to that member<br/>confirm in group"]
-  B -->|"Normal message"| J{"Sender is admin?"}
-  J -->|"Yes"| K["Allowed ✅"]
-  J -->|"No"| L{"Link or banned word?"}
-  L -->|"No"| K
-  L -->|"Yes"| M["Delete message<br/>add warning"]
-  M --> N{"Reached 3 warnings?"}
-  N -->|"No"| O["⚠️ warning 1/3, 2/3"]
-  N -->|"Yes"| P["🚫 Auto-ban"]
-```
+![What the bot does with each message](diagrams/03-message-flow.svg)
 Every step is also saved to the database, so it appears instantly in the dashboard’s live feed.
 
 <!-- ![WF1](screenshots/05-wf1.png) -->
