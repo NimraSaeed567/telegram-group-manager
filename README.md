@@ -16,14 +16,19 @@ Group admins are never auto-moderated. For testing with a single account, the Mo
 
 ## How it fits together
 
-```
-Telegram group ──► n8n WF1 Group Bot ──► Telegram Bot API
-                         │
-                         ▼
-                     Supabase  ◄── n8n WF2 Scheduler (every minute)
-                         ▲
-                         │ (login + Row Level Security)
-Admin browser ──► React dashboard ──► Vercel api/action ──► n8n WF3 Admin Actions ──► Telegram
+```mermaid
+flowchart LR
+  TG["📱 Telegram group"] -->|"messages, joins, commands"| WF1["⚙️ n8n WF1<br/>Group Bot"]
+  WF1 -->|"delete, warn, ban, reply"| TG
+  WF1 <-->|"read / write"| DB[("🗄️ Supabase<br/>database")]
+  WF2["⏰ n8n WF2<br/>Scheduler, every minute"] <-->|"due announcements"| DB
+  WF2 -->|"post announcement"| TG
+  Admin["👩‍💼 Admin"] --> Dash["🖥️ Dashboard<br/>React on Vercel"]
+  Dash <-->|"login, data, live feed"| DB
+  Dash -->|"ban, mute, send now"| API["🔒 Vercel function<br/>checks admin login"]
+  API -->|"+ secret key"| WF3["⚙️ n8n WF3<br/>Admin Actions"]
+  WF3 --> TG
+  WF3 --> DB
 ```
 
 - **n8n** hosts the bot because it has to be online 24/7 to receive Telegram updates and run the scheduler. Each behaviour is a visual workflow.
